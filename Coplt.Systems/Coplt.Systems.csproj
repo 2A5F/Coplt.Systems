@@ -7,14 +7,30 @@
         <Version>0.1.0</Version>
         <IsAotCompatible>True</IsAotCompatible>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <Description>Automatic system (the S in ECS) scheduling and dependency injection</Description>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <RepositoryUrl>https://github.com/2A5F/Coplt.Systems</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/2A5F/Coplt.Systems</PackageProjectUrl>
+        <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Coplt.Systems.Analyzers\Coplt.Systems.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all"/>
+        <ProjectReference Include="..\Coplt.Systems.Analyzers\Coplt.Systems.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="..\Coplt.Systems.Analyzers\bin\Release\netstandard2.0\**\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="'$(Configuration)' == 'Release'" Visable="false"/>
+        <None Include="..\Coplt.Systems.Analyzers\bin\Release\netstandard2.0\**\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="'$(Configuration)' == 'Release'" Visable="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Include="..\LICENSE.md">
+        <Pack>True</Pack>
+        <PackagePath>\</PackagePath>
+      </None>
+      <None Include="..\README.md">
+        <Pack>True</Pack>
+        <PackagePath>\</PackagePath>
+      </None>
     </ItemGroup>
 
 </Project>
