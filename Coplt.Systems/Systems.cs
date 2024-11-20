@@ -91,7 +91,7 @@ public class Systems : IDisposable
         public T? m_data;
 
         public override Type? Type => typeof(T);
-        public override StageMeta? Meta { get; } = new(typeof(T).GetCustomAttribute<SystemAttribute>());
+        public override StageMeta Meta { get; } = new(typeof(T).GetCustomAttribute<SystemAttribute>());
         public override void Setup()
         {
             T.Create(new(Systems), ref Unsafe.As<T, object>(ref m_data!));
@@ -203,8 +203,13 @@ public class Systems : IDisposable
         lock (m_exec_locker)
         {
             if (m_loaded) throw new ArgumentException("Cannot add systems while already loaded");
-            m_stage_map!.TryAdd(typeof(T), new GroupStage<T>(this, new()));
-            if (default_group) m_default_group_type = typeof(T);
+            var stage = new GroupStage<T>(this, new());
+            m_stage_map!.TryAdd(typeof(T), stage);
+            if (default_group) 
+            {
+                m_default_group_type = typeof(T);
+                stage.Meta.Group = typeof(RootGroup);
+            }
         }
     }
 
