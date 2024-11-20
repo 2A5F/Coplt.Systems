@@ -22,6 +22,25 @@ public class Systems : IDisposable
 
     #region Stages
 
+    internal record StageMeta()
+    {
+        public Type? Group { get; set; }
+        public Type[] Before { get; set; } = [];
+        public Type[] After { get; set; } = [];
+        public bool Parallel { get; set; } = false;
+
+        public StageMeta(SystemAttribute? attribute) : this()
+        {
+            if (attribute != null)
+            {
+                Group = attribute.Group;
+                Before = attribute.Before;
+                After = attribute.After;
+                Parallel = attribute.Parallel;
+            }
+        }
+    }
+
     internal interface IGroupStage
     {
         public List<Stage> Stages { get; set; }
@@ -33,7 +52,7 @@ public class Systems : IDisposable
         public int Mark { get; set; }
         public Systems Systems { get; } = Systems;
         public abstract Type? Type { get; }
-        public abstract SystemAttribute? Attribute { get; }
+        public abstract StageMeta? Meta { get; }
         public abstract void Setup();
         public abstract void Update();
         protected abstract void Dispose(bool disposing);
@@ -48,7 +67,7 @@ public class Systems : IDisposable
     {
         public List<Stage> Stages { get; set; } = Stages;
         public override Type? Type => null;
-        public override SystemAttribute? Attribute => null;
+        public override StageMeta? Meta => null;
         public override void Setup()
         {
             Parallel.ForEach(Stages, static stage => stage.Setup());
@@ -72,7 +91,7 @@ public class Systems : IDisposable
         public T? m_data;
 
         public override Type? Type => typeof(T);
-        public override SystemAttribute? Attribute { get; } = typeof(T).GetCustomAttribute<SystemAttribute>();
+        public override StageMeta? Meta { get; } = new(typeof(T).GetCustomAttribute<SystemAttribute>());
         public override void Setup()
         {
             T.Create(new(Systems), ref Unsafe.As<T, object>(ref m_data!));
@@ -115,11 +134,7 @@ public class Systems : IDisposable
         public override void Update()
         {
             base.Update();
-            if (!m_data!.ShouldUpdate()) return;
-            foreach (var stage in Stages)
-            {
-                stage.Update();
-            }
+            m_data!.UpdateSybSystems(new(Stages));
         }
 
         protected override void Dispose(bool disposing)
@@ -139,6 +154,7 @@ public class Systems : IDisposable
     /// Temporary use before loading
     /// </summary>
     internal Dictionary<Type, Stage>? m_stage_map = new();
+    internal Type? m_default_group_type;
     internal List<Stage> m_stages = new();
     internal readonly Lock m_exec_locker = new();
     internal volatile bool m_loaded;
@@ -180,7 +196,7 @@ public class Systems : IDisposable
         }
     }
 
-    public void AddSystemGroup<T>() where T : ISystemGroup
+    public void AddSystemGroup<T>(bool default_group = false) where T : ISystemGroup
     {
         // ReSharper disable once InconsistentlySynchronizedField
         if (m_loaded) throw new ArgumentException("Cannot add systems while already loaded");
@@ -188,6 +204,7 @@ public class Systems : IDisposable
         {
             if (m_loaded) throw new ArgumentException("Cannot add systems while already loaded");
             m_stage_map!.Add(typeof(T), new GroupStage<T>(this, new()));
+            if (default_group) m_default_group_type = typeof(T);
         }
     }
 
@@ -214,7 +231,11 @@ public class Systems : IDisposable
     {
         foreach (var (type, stage) in m_stage_map!)
         {
-            if (stage.Attribute is { Group: { } group_type })
+            if (m_default_group_type is not null && stage.Meta is { Group: null })
+            {
+                stage.Meta.Group = m_default_group_type;
+            }
+            if (stage.Meta is { Group: { } group_type })
             {
                 if (m_stage_map.TryGetValue(group_type, out var group))
                 {
@@ -247,14 +268,14 @@ public class Systems : IDisposable
         foreach (var (_, stage) in dep_graph.Values)
         {
             var type = stage.Type!;
-            var attribute = stage.Attribute;
-            if (attribute is null) continue;
-            foreach (var target in attribute.Before)
+            var meta = stage.Meta;
+            if (meta is null) continue;
+            foreach (var target in meta.Before)
             {
                 if (!dep_graph.TryGetValue(type, out var slot)) continue;
                 slot.to.Add(target, dep_graph[target].stage);
             }
-            foreach (var target in attribute.After)
+            foreach (var target in meta.After)
             {
                 if (!dep_graph.TryGetValue(target, out var slot)) continue;
                 slot.to.Add(type, stage);
@@ -268,7 +289,7 @@ public class Systems : IDisposable
         var list = new LinkedList<Stage>(dep_graph.Values
             .Select(static a => a.stage)
             .OrderBy(static s => s.Order)
-            .ThenBy(static s => s.Attribute is { Parallel: true }));
+            .ThenBy(static s => s.Meta is { Parallel: true }));
 
         #region load group
 
@@ -287,7 +308,7 @@ public class Systems : IDisposable
             var cur = list.First!;
             ParallelStage? parallel = null;
             re:
-            if (cur.Value.Attribute is { Parallel: true })
+            if (cur.Value.Meta is { Parallel: true })
             {
                 if (parallel is null) parallel = new ParallelStage(this, [cur.Value]);
                 else parallel.Stages.Add(cur.Value);

@@ -19,8 +19,10 @@ public interface ISystem : ISystemBase;
 public interface ISystemGroup : ISystemBase
 {
     /// <summary>
-    /// Will be called after calling Update
+    /// The system group can control whether or how often a subsystem is updated.
+    /// <br/>
+    /// <para>Do not call update in parallel</para>
+    /// <para>This method has no dependency injection</para>
     /// </summary>
-    /// <returns>Should the subsystem within the group be updated?</returns>
-    public bool ShouldUpdate() => true;
+    public void UpdateSybSystems(GroupUpdateContext ctx) => ctx.Update();
 }
