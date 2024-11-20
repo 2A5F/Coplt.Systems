@@ -1,8 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>netstandard2.1</TargetFramework>
+        <TargetFramework>net9.0</TargetFramework>
         <Nullable>enable</Nullable>
+        <LangVersion>13.0</LangVersion>
+        <Version>0.1.0</Version>
+        <IsAotCompatible>True</IsAotCompatible>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Coplt.Systems.Analyzers\Coplt.Systems.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\Coplt.Systems.Analyzers\bin\Release\netstandard2.0\**\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="'$(Configuration)' == 'Release'" Visable="false"/>
+    </ItemGroup>
 
 </Project>
