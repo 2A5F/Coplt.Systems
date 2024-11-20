@@ -2,8 +2,9 @@
 
 namespace Coplt.Systems;
 
-public interface ISystemBase: IDisposable
+public interface ISystemBase : IDisposable
 {
+    public static abstract void AddToSystems(Systems systems);
     /// <summary>
     /// Creation, manual implementation is not recommended
     /// </summary>

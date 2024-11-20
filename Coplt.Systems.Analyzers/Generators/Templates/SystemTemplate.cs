@@ -103,6 +103,20 @@ public class SystemTemplate(
 
         #endregion
 
+        #region AddToSystems
+
+        {
+            sb.AppendLine();
+            sb.AppendLine(
+                $"    static void global::Coplt.Systems.ISystemBase.AddToSystems(global::Coplt.Systems.Systems systems)");
+            sb.AppendLine($"    {{");
+            if (IsGroup) sb.AppendLine($"        systems.AddSystemGroup<global::{GenBase.RawFullName}>();");
+            else sb.AppendLine($"        systems.AddSystem<global::{GenBase.RawFullName}>();");
+            sb.AppendLine($"    }}");
+        }
+
+        #endregion
+        
         #region Setup and Create
 
         {

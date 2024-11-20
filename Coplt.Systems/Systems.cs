@@ -192,7 +192,7 @@ public class Systems : IDisposable
         lock (m_exec_locker)
         {
             if (m_loaded) throw new ArgumentException("Cannot add systems while already loaded");
-            m_stage_map!.Add(typeof(T), new SystemStage<T>(this));
+            m_stage_map!.TryAdd(typeof(T), new SystemStage<T>(this));
         }
     }
 
@@ -203,7 +203,7 @@ public class Systems : IDisposable
         lock (m_exec_locker)
         {
             if (m_loaded) throw new ArgumentException("Cannot add systems while already loaded");
-            m_stage_map!.Add(typeof(T), new GroupStage<T>(this, new()));
+            m_stage_map!.TryAdd(typeof(T), new GroupStage<T>(this, new()));
             if (default_group) m_default_group_type = typeof(T);
         }
     }
