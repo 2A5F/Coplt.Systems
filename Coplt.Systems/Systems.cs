@@ -24,6 +24,7 @@ public class Systems : IDisposable
 
     internal record StageMeta()
     {
+        public long Partition { get; set; }
         public Type? Group { get; set; }
         public Type[] Before { get; set; } = [];
         public Type[] After { get; set; } = [];
@@ -33,6 +34,7 @@ public class Systems : IDisposable
         {
             if (attribute != null)
             {
+                Partition = attribute.Partition;
                 Group = attribute.Group;
                 Before = attribute.Before;
                 After = attribute.After;
@@ -205,7 +207,7 @@ public class Systems : IDisposable
             if (m_loaded) throw new ArgumentException("Cannot add systems while already loaded");
             var stage = new GroupStage<T>(this, new());
             m_stage_map!.TryAdd(typeof(T), stage);
-            if (default_group) 
+            if (default_group)
             {
                 m_default_group_type = typeof(T);
                 stage.Meta.Group = typeof(RootGroup);
@@ -298,6 +300,7 @@ public class Systems : IDisposable
         var list = new LinkedList<Stage>(dep_graph.Values
             .Select(static a => a.stage)
             .OrderBy(static s => s.Order)
+            .ThenBy(static s => s.Meta?.Partition ?? 0)
             .ThenBy(static s => s.Meta is { Parallel: true }));
 
         #region load group
