@@ -235,6 +235,10 @@ public class Systems : IDisposable
             {
                 stage.Meta.Group = m_default_group_type;
             }
+            if (stage.Meta != null && stage.Meta.Group == typeof(RootGroup))
+            {
+                stage.Meta.Group = null;
+            }
             if (stage.Meta is { Group: { } group_type })
             {
                 if (m_stage_map.TryGetValue(group_type, out var group))
