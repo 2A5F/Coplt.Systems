@@ -19,6 +19,13 @@ public class SystemAttribute : Attribute
 }
 
 [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+public class SetupAttribute : Attribute
+{
+    public int Order { get; set; }
+    public bool Exclude { get; set; }
+}
+
+[AttributeUsage(AttributeTargets.Method, Inherited = false)]
 public class UpdateAttribute : Attribute
 {
     public int Order { get; set; }

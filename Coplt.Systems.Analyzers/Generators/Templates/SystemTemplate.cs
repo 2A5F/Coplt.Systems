@@ -1,13 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Coplt.Analyzers.Generators.Templates;
 using Coplt.Analyzers.Utilities;
 using Microsoft.CodeAnalysis;
 
 namespace Coplt.Systems.Analyzers.Generators.Templates;
 
-public record struct UpdateMethod(string Name, ImmutableArray<Arg> Args);
+public record struct InjectedMethod(string Name, ImmutableArray<Arg> Args);
 
 public record struct Injection(
     string Name,
@@ -25,16 +26,27 @@ public record struct Arg(
     RefKind Ref
 );
 
+public record struct SystemMeta()
+{
+    public long Partition { get; set; }
+    public string? Group { get; set; }
+    public ImmutableArray<string> Before { get; set; } = [];
+    public ImmutableArray<string> After { get; set; } = [];
+    public bool Parallel { get; set; } = false;
+}
+
 public class SystemTemplate(
     GenBase GenBase,
     string name,
+    SystemMeta Meta,
     bool IsGroup,
     bool IsSystem,
     bool IsStruct,
     bool ReadOnly,
     bool HasDispose,
     ImmutableArray<Injection> Injections,
-    ImmutableArray<UpdateMethod> Updates,
+    ImmutableArray<InjectedMethod> Setups,
+    ImmutableArray<InjectedMethod> Updates,
     ImmutableArray<Arg> CtorArgs
 ) : ATemplate(GenBase)
 {
@@ -49,6 +61,14 @@ public class SystemTemplate(
         {
             if (InjectionTypes.ContainsKey(injection.Type)) continue;
             else InjectionTypes.Add(injection.Type, injection_inc++);
+        }
+        foreach (var setup in Setups)
+        {
+            foreach (var arg in setup.Args)
+            {
+                if (InjectionTypes.ContainsKey(arg.Type)) continue;
+                else InjectionTypes.Add(arg.Type, injection_inc++);
+            }
         }
         foreach (var update in Updates)
         {
@@ -67,7 +87,7 @@ public class SystemTemplate(
             : $" : global::Coplt.Systems.ISystem");
         sb.AppendLine("{");
 
-        #region Initialization FIeld
+        #region Initialization Field
 
         {
             var r = ReadOnly ? "readonly " : "";
@@ -116,8 +136,27 @@ public class SystemTemplate(
         }
 
         #endregion
-        
-        #region Setup and Create
+
+        #region Meta
+
+        {
+            sb.AppendLine();
+            sb.AppendLine(
+                $"    static global::Coplt.Systems.SystemMeta global::Coplt.Systems.ISystemBase.Meta {{ get; }} = new()");
+            sb.AppendLine($"    {{");
+            sb.AppendLine($"        Partition = {Meta.Partition},");
+            sb.AppendLine($"        Group = {(Meta.Group is null ? "null" : $"typeof({Meta.Group})")},");
+            sb.AppendLine($"        Before = [{string.Join(", ", Meta.Before.Select(static a => $"typeof({a})"))}],");
+            sb.AppendLine($"        After = [{string.Join(", ", Meta.After.Select(static a => $"typeof({a})"))}],");
+            sb.AppendLine($"        Parallel = {(Meta.Parallel ? "true" : "false")},");
+            sb.AppendLine($"        Setup = {(Setups.Length > 0 ? "true" : "false")},");
+            sb.AppendLine($"        Update = {(Updates.Length > 0 ? "true" : "false")},");
+            sb.AppendLine($"    }};");
+        }
+
+        #endregion
+
+        #region Create
 
         {
             Dictionary<string, int> CtorInjectionTypes = new();
@@ -129,7 +168,7 @@ public class SystemTemplate(
             }
             sb.AppendLine();
             sb.AppendLine(
-                $"    static void global::Coplt.Systems.ISystemBase.Create(global::Coplt.Systems.SetupContext ctx, ref object slot)");
+                $"    static void global::Coplt.Systems.ISystemBase.Create(global::Coplt.Systems.InjectContext ctx, ref object slot)");
             sb.AppendLine($"    {{");
             sb.AppendLine(
                 $"        ref var self = ref global::System.Runtime.CompilerServices.Unsafe.As<object, global::{GenBase.RawFullName}>(ref slot);");
@@ -162,6 +201,38 @@ public class SystemTemplate(
             {
                 var get = CtorInjectionTypes.TryGetValue(kv.Key, out var ci) ? $"c{ci}" : $"ctx.GetRef<{kv.Key}>()";
                 sb.AppendLine($"        data._{kv.Value} = {get};");
+            }
+            sb.AppendLine($"    }}");
+        }
+
+        #endregion
+
+        #region Setup
+
+        {
+            sb.AppendLine();
+            sb.AppendLine($"    void global::Coplt.Systems.ISystemBase.Setup()");
+            sb.AppendLine($"    {{");
+            foreach (var setup in Setups)
+            {
+                sb.Append($"        this.{setup.Name}(");
+                var first = true;
+                foreach (var arg in setup.Args)
+                {
+                    var i = InjectionTypes[arg.Type];
+                    var r = arg.Ref switch
+                    {
+                        RefKind.Ref => "ref ",
+                        RefKind.Out => "out ",
+                        RefKind.In => "in ",
+                        RefKind.RefReadOnlyParameter => "ref ",
+                        _ => ""
+                    };
+                    if (first) first = false;
+                    else sb.Append(", ");
+                    sb.Append($"{r}{InjectionFieldName}._{i}.Value");
+                }
+                sb.AppendLine($");");
             }
             sb.AppendLine($"    }}");
         }

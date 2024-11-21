@@ -3,10 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,27 +19,6 @@ public class Systems : IDisposable
 
     #region Stages
 
-    internal record StageMeta()
-    {
-        public long Partition { get; set; }
-        public Type? Group { get; set; }
-        public Type[] Before { get; set; } = [];
-        public Type[] After { get; set; } = [];
-        public bool Parallel { get; set; } = false;
-
-        public StageMeta(SystemAttribute? attribute) : this()
-        {
-            if (attribute != null)
-            {
-                Partition = attribute.Partition;
-                Group = attribute.Group;
-                Before = attribute.Before;
-                After = attribute.After;
-                Parallel = attribute.Parallel;
-            }
-        }
-    }
-
     internal interface IGroupStage
     {
         public List<Stage> Stages { get; set; }
@@ -54,7 +30,9 @@ public class Systems : IDisposable
         public int Mark { get; set; }
         public Systems Systems { get; } = Systems;
         public abstract Type? Type { get; }
-        public abstract StageMeta? Meta { get; }
+        public abstract SystemMeta? Meta { get; }
+        public virtual bool AnyUpdate { get; set; } = true;
+        public abstract void Create();
         public abstract void Setup();
         public abstract void Update();
         protected abstract void Dispose(bool disposing);
@@ -69,15 +47,25 @@ public class Systems : IDisposable
     {
         public List<Stage> Stages { get; set; } = Stages;
         public override Type? Type => null;
-        public override StageMeta? Meta => null;
+        public override SystemMeta? Meta => null;
+        
+        private List<Stage> UpdateStages { get; set; } = null!;
+        
+        public override void Create()
+        {
+            Parallel.ForEach(Stages, static stage => stage.Create());
+            AnyUpdate = Stages.Any(static stage => stage.AnyUpdate);
+        }
+
         public override void Setup()
         {
             Parallel.ForEach(Stages, static stage => stage.Setup());
+            UpdateStages = Stages.Where(static s => s.AnyUpdate).ToList();
         }
 
         public override void Update()
         {
-            Parallel.ForEach(Stages, static stage => stage.Update());
+            Parallel.ForEach(UpdateStages, static stage => stage.Update());
         }
 
         protected override void Dispose(bool disposing)
@@ -92,16 +80,22 @@ public class Systems : IDisposable
     {
         public T? m_data;
 
-        public override Type? Type => typeof(T);
-        public override StageMeta Meta { get; } = new(typeof(T).GetCustomAttribute<SystemAttribute>());
-        public override void Setup()
+        public override Type Type => typeof(T);
+        public override SystemMeta Meta { get; } = T.Meta;
+        public override void Create()
         {
             T.Create(new(Systems), ref Unsafe.As<T, object>(ref m_data!));
+            AnyUpdate = Meta.Update;
+        }
+
+        public override void Setup()
+        {
+            if (Meta.Setup) m_data!.Setup();
         }
 
         public override void Update()
         {
-            m_data!.Update();
+            if (Meta.Update) m_data!.Update();
         }
 
         protected override void Dispose(bool disposing)
@@ -123,6 +117,17 @@ public class Systems : IDisposable
         where T : ISystemGroup
     {
         public List<Stage> Stages { get; set; } = Stages;
+        private List<Stage> UpdateStages { get; set; } = null!;
+
+        public override void Create()
+        {
+            base.Create();
+            foreach (var stage in Stages)
+            {
+                stage.Create();
+            }
+            AnyUpdate = Stages.Any(static stage => stage.AnyUpdate);
+        }
 
         public override void Setup()
         {
@@ -131,12 +136,13 @@ public class Systems : IDisposable
             {
                 stage.Setup();
             }
+            UpdateStages = Stages.Where(static s => s.AnyUpdate).ToList();
         }
 
         public override void Update()
         {
             base.Update();
-            m_data!.UpdateSybSystems(new(Stages));
+            m_data!.UpdateSybSystems(new(UpdateStages));
         }
 
         protected override void Dispose(bool disposing)
@@ -227,6 +233,10 @@ public class Systems : IDisposable
             m_loaded = true;
             LoadStages();
             m_stage_map = null;
+            foreach (var stage in m_stages)
+            {
+                stage.Create();
+            }
             foreach (var stage in m_stages)
             {
                 stage.Setup();

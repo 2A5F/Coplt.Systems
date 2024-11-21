@@ -22,6 +22,7 @@ public partial class Tests
         public partial ref Data Data { get; }
         public partial ref readonly Data Data2 { get; }
         private readonly float some = a + b;
+        public void Setup(int a) { }
         public void Update(ref int a)
         {
             Data.inc++;

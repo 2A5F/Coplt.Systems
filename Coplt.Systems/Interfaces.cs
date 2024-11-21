@@ -4,11 +4,23 @@ namespace Coplt.Systems;
 
 public interface ISystemBase : IDisposable
 {
+    /// <summary>
+    /// Manual implementation is not recommended
+    /// </summary>
     public static abstract void AddToSystems(Systems systems);
     /// <summary>
-    /// Creation, manual implementation is not recommended
+    /// Manual implementation is not recommended
     /// </summary>
-    public static abstract void Create(SetupContext ctx, ref object slot);
+    public static abstract SystemMeta Meta { get; }
+    /// <summary>
+    /// Manual implementation is not recommended
+    /// </summary>
+    public static abstract void Create(InjectContext ctx, ref object slot);
+    
+    /// <summary>
+    /// Will only be called once
+    /// </summary>
+    public void Setup();
     /// <summary>
     /// Update the system, manual implementation is not recommended
     /// </summary>
