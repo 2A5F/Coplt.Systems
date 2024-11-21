@@ -48,9 +48,9 @@ public class Systems : IDisposable
         public List<Stage> Stages { get; set; } = Stages;
         public override Type? Type => null;
         public override SystemMeta? Meta => null;
-        
+
         private List<Stage> UpdateStages { get; set; } = null!;
-        
+
         public override void Create()
         {
             Parallel.ForEach(Stages, static stage => stage.Create());
@@ -126,7 +126,7 @@ public class Systems : IDisposable
             {
                 stage.Create();
             }
-            AnyUpdate = Stages.Any(static stage => stage.AnyUpdate);
+            AnyUpdate = Meta.Update || Stages.Any(static stage => stage.AnyUpdate);
         }
 
         public override void Setup()
