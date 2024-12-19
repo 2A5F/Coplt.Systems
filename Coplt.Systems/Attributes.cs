@@ -12,10 +12,6 @@ public class SystemAttribute : Attribute
     public Type? Group { get; set; }
     public Type[] Before { get; set; } = [];
     public Type[] After { get; set; } = [];
-    /// <summary>
-    /// Allows the system to execute in parallel
-    /// </summary>
-    public bool Parallel { get; set; } = false;
 }
 
 [AttributeUsage(AttributeTargets.Method, Inherited = false)]
@@ -37,3 +33,9 @@ public class InjectAttribute : Attribute
 {
     public bool Exclude { get; set; }
 }
+
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
+public class SkipSetupAttribute : Attribute;
+
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
+public class SkipUpdateAttribute : Attribute;

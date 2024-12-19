@@ -11,12 +11,7 @@ public interface ISystemBase : IDisposable
     /// <summary>
     /// Manual implementation is not recommended
     /// </summary>
-    public static abstract SystemMeta Meta { get; }
-    /// <summary>
-    /// Manual implementation is not recommended
-    /// </summary>
-    public static abstract void Create(InjectContext ctx, ref object slot);
-    
+    public static abstract void Create(InjectContext ctx, SystemHandle handle);
     /// <summary>
     /// Will only be called once
     /// </summary>

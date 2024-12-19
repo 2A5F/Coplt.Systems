@@ -36,70 +36,46 @@ public partial class Tests
     public void Test1()
     {
         var sys = new Systems();
+        sys.UnhandledException += e => e.Throw();
+        sys.Logger = Systems.ConsoleLogger.Instance;
         sys.SetResource(new Data());
-        sys.AddSystem<Sys1<int>>();
-        sys.AddSystemGroup<SysGroup1>();
-        sys.Setup();
+        sys.Add<Sys1<int>>();
+        sys.Add<SysGroup1>();
         sys.Update();
         var inc = sys.GetResource<Data>().inc;
         Console.WriteLine(inc);
         Assert.That(inc, Is.EqualTo(1));
     }
 
-    [System(Parallel = true)]
+    [System(Group = typeof(SysGroup1))]
     public readonly partial struct Sys2
     {
-        private void Update(ref Data data) => Interlocked.Increment(ref data.inc);
+        private void Update(ref Data data) => data.inc *= 2;
     }
 
-    [System(Parallel = true)]
+    [System(Group = typeof(SysGroup1), Before = [typeof(Sys2)])]
     public readonly partial struct Sys3
     {
-        private void Update(ref Data data) => Interlocked.Decrement(ref data.inc);
+        private void Update(ref Data data) => data.inc *= 3;
+    }
+
+    [System(After = [typeof(SysGroup1)])]
+    public readonly partial struct Sys4
+    {
+        private void Update(ref Data data) => data.inc += 3;
     }
 
     [Test]
     public void Test2()
     {
         var sys = new Systems();
+        sys.UnhandledException += e => e.Throw();
+        sys.Logger = Systems.ConsoleLogger.Instance;
         sys.SetResource(new Data { inc = 6 });
-        sys.AddSystem<Sys2>();
-        sys.AddSystem<Sys3>();
-        sys.Setup();
-        sys.Update();
-        var inc = sys.GetResource<Data>().inc;
-        Console.WriteLine(inc);
-        Assert.That(inc, Is.EqualTo(6));
-    }
-
-    [System(Group = typeof(SysGroup1))]
-    public readonly partial struct Sys4
-    {
-        private void Update(ref Data data) => data.inc *= 2;
-    }
-
-    [System(Group = typeof(SysGroup1), Before = [typeof(Sys4)])]
-    public readonly partial struct Sys5
-    {
-        private void Update(ref Data data) => data.inc *= 3;
-    }
-
-    [System(After = [typeof(SysGroup1)])]
-    public readonly partial struct Sys6
-    {
-        private void Update(ref Data data) => data.inc += 3;
-    }
-
-    [Test]
-    public void Test3()
-    {
-        var sys = new Systems();
-        sys.SetResource(new Data { inc = 6 });
-        sys.AddSystemGroup<SysGroup1>();
-        sys.AddSystem<Sys4>();
-        sys.AddSystem<Sys5>();
-        sys.AddSystem<Sys6>();
-        sys.Setup();
+        sys.Add<SysGroup1>();
+        sys.Add<Sys2>();
+        sys.Add<Sys3>();
+        sys.Add<Sys4>();
         sys.Update();
         var inc = sys.GetResource<Data>().inc;
         Console.WriteLine(inc);

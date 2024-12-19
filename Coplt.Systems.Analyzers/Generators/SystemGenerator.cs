@@ -42,8 +42,6 @@ public class SystemGenerator : IIncrementalGenerator
                     var attr_args = attr.NamedArguments.ToDictionary(static a => a.Key, static a => a.Value);
                     if (attr_args.TryGetValue("Partition", out var Partition))
                         meta.Partition = Partition.Value is long p ? p : 0;
-                    if (attr_args.TryGetValue("Parallel", out var Parallel))
-                        meta.Parallel = Partition.Value is true;
                     if (attr_args.TryGetValue("Group", out var Group))
                         meta.Group = ((ITypeSymbol)Group.Value!)
                             .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);

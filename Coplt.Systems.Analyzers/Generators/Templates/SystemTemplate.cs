@@ -32,7 +32,6 @@ public record struct SystemMeta()
     public string? Group { get; set; }
     public ImmutableArray<string> Before { get; set; } = [];
     public ImmutableArray<string> After { get; set; } = [];
-    public bool Parallel { get; set; } = false;
 }
 
 public class SystemTemplate(
@@ -79,6 +78,8 @@ public class SystemTemplate(
             }
         }
 
+        if (Setups.Length == 0) sb.AppendLine("[global::Coplt.Systems.SkipSetup]");
+        if (Updates.Length == 0) sb.AppendLine("[global::Coplt.Systems.SkipUpdate]");
         sb.AppendLine(
             "[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Auto)]");
         sb.Append(GenBase.Target.Code);
@@ -106,16 +107,18 @@ public class SystemTemplate(
                 var i = InjectionTypes[injection.Type];
                 var ro = injection.ReadOnly ? "readonly " : "";
                 var r = injection.Ref ? $"ref " : "";
+                sb.AppendLine("    [global::System.Diagnostics.CodeAnalysis.UnscopedRefAttribute]");
                 sb.AppendLine(
                     $"    {injection.Accessibility.GetAccessStr()} partial {r}{ro}{injection.Type} {injection.Name}");
                 sb.AppendLine($"    {{");
                 if (injection.Get)
                 {
-                    sb.AppendLine($"        get => {r}{InjectionFieldName}._{i}.Value;");
+                    var get = injection.Ref ? injection.ReadOnly ? "GetImmRef" : "GetMutRef" : "Get";
+                    sb.AppendLine($"        get => {r}{InjectionFieldName}._{i}.{get}();");
                 }
                 if (injection.Set)
                 {
-                    sb.AppendLine($"        set => {InjectionFieldName}._{i}.Value = value;");
+                    sb.AppendLine($"        set => {InjectionFieldName}._{i}.Set(value);");
                 }
                 sb.AppendLine($"    }}");
             }
@@ -130,28 +133,8 @@ public class SystemTemplate(
             sb.AppendLine(
                 $"    static void global::Coplt.Systems.ISystemBase.AddToSystems(global::Coplt.Systems.Systems systems)");
             sb.AppendLine($"    {{");
-            if (IsGroup) sb.AppendLine($"        systems.AddSystemGroup<global::{GenBase.RawFullName}>();");
-            else sb.AppendLine($"        systems.AddSystem<global::{GenBase.RawFullName}>();");
+            sb.AppendLine($"        systems.Add<global::{GenBase.RawFullName}>();");
             sb.AppendLine($"    }}");
-        }
-
-        #endregion
-
-        #region Meta
-
-        {
-            sb.AppendLine();
-            sb.AppendLine(
-                $"    static global::Coplt.Systems.SystemMeta global::Coplt.Systems.ISystemBase.Meta {{ get; }} = new()");
-            sb.AppendLine($"    {{");
-            sb.AppendLine($"        Partition = {Meta.Partition},");
-            sb.AppendLine($"        Group = {(Meta.Group is null ? "null" : $"typeof({Meta.Group})")},");
-            sb.AppendLine($"        Before = [{string.Join(", ", Meta.Before.Select(static a => $"typeof({a})"))}],");
-            sb.AppendLine($"        After = [{string.Join(", ", Meta.After.Select(static a => $"typeof({a})"))}],");
-            sb.AppendLine($"        Parallel = {(Meta.Parallel ? "true" : "false")},");
-            sb.AppendLine($"        Setup = {(Setups.Length > 0 ? "true" : "false")},");
-            sb.AppendLine($"        Update = {(Updates.Length > 0 ? "true" : "false")},");
-            sb.AppendLine($"    }};");
         }
 
         #endregion
@@ -168,13 +151,13 @@ public class SystemTemplate(
             }
             sb.AppendLine();
             sb.AppendLine(
-                $"    static void global::Coplt.Systems.ISystemBase.Create(global::Coplt.Systems.InjectContext ctx, ref object slot)");
+                $"    static void global::Coplt.Systems.ISystemBase.Create(global::Coplt.Systems.InjectContext ctx, global::Coplt.Systems.SystemHandle handle)");
             sb.AppendLine($"    {{");
             sb.AppendLine(
-                $"        ref var self = ref global::System.Runtime.CompilerServices.Unsafe.As<object, global::{GenBase.RawFullName}>(ref slot);");
+                $"        ref var self = ref handle.UnsafeAs<global::{GenBase.RawFullName}>().GetMutRef();");
             foreach (var kv in CtorInjectionTypes)
             {
-                sb.AppendLine($"        var c{kv.Value} = ctx.GetRef<{kv.Key}>();");
+                sb.AppendLine($"        var c{kv.Value} = ctx.DefaultResourceProvider.GetRef<{kv.Key}>();");
             }
             var box = IsStruct ? "(object)" : "";
             sb.Append($"        self = new global::{GenBase.RawFullName}(");
@@ -192,14 +175,22 @@ public class SystemTemplate(
                 };
                 if (first) first = false;
                 else sb.Append(", ");
-                sb.Append($"{r}c{i}.Value");
+                var get = arg.Ref switch
+                {
+                    RefKind.Ref or RefKind.Out or RefKind.RefReadOnlyParameter => "GetMutRef",
+                    RefKind.In => "GetImmRef",
+                    _ => "Get"
+                };
+                sb.Append($"{r}c{i}.{get}()");
             }
             sb.AppendLine($");");
             sb.AppendLine(
                 $"        ref var data = ref global::System.Runtime.CompilerServices.Unsafe.AsRef(in self.{InjectionFieldName});");
             foreach (var kv in InjectionTypes)
             {
-                var get = CtorInjectionTypes.TryGetValue(kv.Key, out var ci) ? $"c{ci}" : $"ctx.GetRef<{kv.Key}>()";
+                var get = CtorInjectionTypes.TryGetValue(kv.Key, out var ci)
+                    ? $"c{ci}"
+                    : $"ctx.DefaultResourceProvider.GetRef<{kv.Key}>()";
                 sb.AppendLine($"        data._{kv.Value} = {get};");
             }
             sb.AppendLine($"    }}");
@@ -230,7 +221,13 @@ public class SystemTemplate(
                     };
                     if (first) first = false;
                     else sb.Append(", ");
-                    sb.Append($"{r}{InjectionFieldName}._{i}.Value");
+                    var get = arg.Ref switch
+                    {
+                        RefKind.Ref or RefKind.Out or RefKind.RefReadOnlyParameter => "GetMutRef",
+                        RefKind.In => "GetImmRef",
+                        _ => "Get"
+                    };
+                    sb.Append($"{r}{InjectionFieldName}._{i}.{get}()");
                 }
                 sb.AppendLine($");");
             }
@@ -262,7 +259,13 @@ public class SystemTemplate(
                     };
                     if (first) first = false;
                     else sb.Append(", ");
-                    sb.Append($"{r}{InjectionFieldName}._{i}.Value");
+                    var get = arg.Ref switch
+                    {
+                        RefKind.Ref or RefKind.Out or RefKind.RefReadOnlyParameter => "GetMutRef",
+                        RefKind.In => "GetImmRef",
+                        _ => "Get"
+                    };
+                    sb.Append($"{r}{InjectionFieldName}._{i}.{get}()");
                 }
                 sb.AppendLine($");");
             }
@@ -291,7 +294,7 @@ public class SystemTemplate(
             sb.AppendLine($"    {{");
             foreach (var kv in InjectionTypes)
             {
-                sb.AppendLine($"        public global::Coplt.Systems.InjectRef<{kv.Key}> _{kv.Value};");
+                sb.AppendLine($"        public global::Coplt.Systems.ResRef<{kv.Key}> _{kv.Value};");
             }
             sb.AppendLine($"    }}");
         }
