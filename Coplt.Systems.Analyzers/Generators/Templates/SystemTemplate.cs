@@ -63,7 +63,6 @@ public class SystemTemplate(
 
     protected override void DoGen()
     {
-        var circular_references = false;
         var has_drp = false;
         var injection_inc = 0;
         var resource_provider_type_inc = 0;

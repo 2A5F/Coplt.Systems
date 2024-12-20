@@ -114,7 +114,7 @@ public readonly struct ResRef<T>
     {
         if (m_obj is null) return ref Unsafe.NullRef<T>();
         if (m_type is ResRefType.Indirect) return ref UnsafeGetIndirectRef().UnsafeGetRef();
-        else if (m_type is ResRefType.IndirectStrongBox) return ref ((StrongBox<T>)m_obj).Value!;
+        else if (m_type is ResRefType.IndirectStrongBox) return ref Unsafe.As<StrongBox<T>>(m_obj).Value!;
         else if (m_type is ResRefType.ObjectArray)
         {
             ref var slot = ref Unsafe.Add(
@@ -210,7 +210,7 @@ public readonly struct UnTypedResRef
     {
         if (m_obj is null) return null;
         if (m_type is ResRefType.Indirect) return UnsafeGetIndirectRef().GetObject();
-        else if (m_type is ResRefType.IndirectStrongBox) return ((IStrongBox)m_obj).Value;
+        else if (m_type is ResRefType.IndirectStrongBox) return Unsafe.As<IStrongBox>(m_obj).Value;
         else if (m_type is ResRefType.ObjectArray)
         {
             ref var slot = ref Unsafe.Add(
