@@ -131,7 +131,7 @@ public class ResourceContainer : IEnumerable<UnTypedResRef>
         {
             ref var slot = ref m_chunks[index_of_chunk]![index_in_chunk];
             Interlocked.CompareExchange(ref slot, default(T)!, null!);
-            return new(slot, ResRefType.ReadWriteRef);
+            return new(slot, ResRefType.BoxedStruct);
         }
         return new(m_chunks[index_of_chunk]!, ResRefType.ObjectArray, index_in_chunk);
     }
@@ -152,7 +152,7 @@ public class ResourceContainer : IEnumerable<UnTypedResRef>
             ref var slot = ref m_chunks[index_of_chunk]![index_in_chunk];
             var obj = SystemsUtils.CreateBoxedDefaultValueType(type);
             Interlocked.CompareExchange(ref slot, obj, null!);
-            return new(slot, ResRefType.ReadWriteRef);
+            return new(slot, ResRefType.BoxedStruct);
         }
         return new(m_chunks[index_of_chunk]!, ResRefType.ObjectArray, index_in_chunk);
     }
@@ -222,7 +222,7 @@ public class ResourceContainer : IEnumerable<UnTypedResRef>
                         var obj = SystemsUtils.CreateBoxedDefaultValueType(type);
                         Interlocked.CompareExchange(ref slot!, obj, null!);
                     }
-                    return new(slot, ResRefType.ReadWriteRef);
+                    return new(slot, ResRefType.BoxedStruct);
                 }
                 return new(chunk, ResRefType.ObjectArray, IndexInChunk(index));
             }

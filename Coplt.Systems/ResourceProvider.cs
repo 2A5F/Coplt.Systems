@@ -40,13 +40,13 @@ public class SystemRefResourceProvider(Systems Systems) : ResourceProvider<Syste
         {
             if (data.System is null)
             {
-                if (req.SrcSystem is { } handle) return new(handle, ResRefType.ReadRef);
+                if (req.SrcSystem is { } handle) return new(handle, ResRefType.BoxedStructReadOnly);
                 throw new ArgumentException("No system type provided");
             }
             else
             {
                 var handle = new SystemHandle(Systems.m_system_instances.GetOrAdd(data.System));
-                return new(handle, ResRefType.ReadRef);
+                return new(handle, ResRefType.BoxedStructReadOnly);
             }
         }
         if (typeof(T).IsAssignableTo(typeof(ISystemBase)))
