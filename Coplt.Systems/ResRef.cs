@@ -15,6 +15,10 @@ public enum ResRefType : uint
     /// </summary>
     Indirect,
     /// <summary>
+    /// Indicates that the object is a nested <see cref="StrongBox{T}"/>
+    /// </summary>
+    IndirectStrongBox,
+    /// <summary>
     /// Indicates that object is an <see cref="T:object[]"/>
     /// </summary>
     ObjectArray,
@@ -25,7 +29,7 @@ public enum ResRefType : uint
     /// <summary>
     /// Indicates that object is an array of <see cref="Coplt.Systems.ResRef{T}"/>
     /// </summary>
-    IndirectArray
+    IndirectArray,
 }
 
 public readonly struct ResRef<T>
@@ -50,6 +54,10 @@ public readonly struct ResRef<T>
                     break;
                 case ResRefType.Indirect:
                     if (obj is not (null or ResRef<T>))
+                        throw new ArgumentException("obj must be null or ResRef<T>", nameof(obj));
+                    break;
+                case ResRefType.IndirectStrongBox:
+                    if (obj is not (null or StrongBox<T>))
                         throw new ArgumentException("obj must be null or ResRef<T>", nameof(obj));
                     break;
                 case ResRefType.ObjectArray:
@@ -106,6 +114,7 @@ public readonly struct ResRef<T>
     {
         if (m_obj is null) return ref Unsafe.NullRef<T>();
         if (m_type is ResRefType.Indirect) return ref UnsafeGetIndirectRef().UnsafeGetRef();
+        else if (m_type is ResRefType.IndirectStrongBox) return ref ((StrongBox<T>)m_obj).Value!;
         else if (m_type is ResRefType.ObjectArray)
         {
             ref var slot = ref Unsafe.Add(
@@ -201,6 +210,7 @@ public readonly struct UnTypedResRef
     {
         if (m_obj is null) return null;
         if (m_type is ResRefType.Indirect) return UnsafeGetIndirectRef().GetObject();
+        else if (m_type is ResRefType.IndirectStrongBox) return ((IStrongBox)m_obj).Value;
         else if (m_type is ResRefType.ObjectArray)
         {
             ref var slot = ref Unsafe.Add(

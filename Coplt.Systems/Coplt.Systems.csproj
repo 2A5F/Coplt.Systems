@@ -4,7 +4,7 @@
         <TargetFramework>net9.0</TargetFramework>
         <Nullable>enable</Nullable>
         <LangVersion>13.0</LangVersion>
-        <Version>0.8.2</Version>
+        <Version>0.9.0</Version>
         <IsAotCompatible>True</IsAotCompatible>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <Description>Automatic system (the S in ECS) scheduling and dependency injection</Description>
