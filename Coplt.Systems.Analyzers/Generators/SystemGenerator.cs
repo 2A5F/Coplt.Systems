@@ -64,8 +64,11 @@ public class SystemGenerator : IIncrementalGenerator
                     null => $"null",
                     true => "true",
                     false => "false",
-                    char c => SyntaxFactory.LiteralExpression(SyntaxKind.CharacterLiteralExpression, SyntaxFactory.Literal(c)).ToFullString(),
-                    string s => SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(s)).ToFullString(),
+                    char c => SyntaxFactory
+                        .LiteralExpression(SyntaxKind.CharacterLiteralExpression, SyntaxFactory.Literal(c))
+                        .ToFullString(),
+                    string s => SyntaxFactory
+                        .LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(s)).ToFullString(),
                     int => $"{value}",
                     uint => $"{value}u",
                     long => $"{value}L",
@@ -81,8 +84,9 @@ public class SystemGenerator : IIncrementalGenerator
                 sb.Append($"({arg.Type!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}){arg.Value}");
                 break;
             case TypedConstantKind.Type:
-                sb.Append(
-                    $"typeof({((ISymbol)arg.Value!).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})");
+                sb.Append(arg.Value is null
+                    ? "null"
+                    : $"typeof({((ISymbol)arg.Value).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})");
                 break;
             case TypedConstantKind.Array:
             {

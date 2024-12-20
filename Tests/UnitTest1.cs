@@ -16,6 +16,7 @@ public partial class Tests
         public int inc;
     }
 
+
     [System]
     public readonly partial struct Sys1<T>(ref float a, int b)
     {
@@ -105,6 +106,8 @@ public partial class Tests
         [Null("Some")]
         public partial object? Some { get; set; }
         public partial object? Foo { get; set; }
+        [SystemRef]
+        public partial NullResourceProviderSystem Self { get; }
 
         public void Update([Null] object? b)
         {

@@ -241,6 +241,7 @@ public class Systems : IDisposable
         m_root_group = new(this, typeof(RootGroup));
         m_system_nodes.Add(typeof(RootGroup), m_root_group);
         AddSystemCreator<RootGroup>();
+        SetResourceProvider(new SystemRefResourceProvider(this));
     }
 
     #endregion

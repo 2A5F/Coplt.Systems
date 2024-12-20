@@ -55,7 +55,7 @@ public class SystemTemplate(
 {
     private const string InjectionDataName = $"__InjectionData";
     private const string InjectionFieldName = $"__injection_data";
-    private const string AttributeInstanceName = $"__AttributeInstance";
+    private const string AttributeInstanceName = $"__Attributes";
 
     private readonly Dictionary<string, int> ResourceProviderTypes = new();
     private readonly Dictionary<(string t, ResourceProvider? rp), (int t, int rp)> InjectionTypes = new();
@@ -63,6 +63,7 @@ public class SystemTemplate(
 
     protected override void DoGen()
     {
+        var circular_references = false;
         var has_drp = false;
         var injection_inc = 0;
         var resource_provider_type_inc = 0;
@@ -209,6 +210,7 @@ public class SystemTemplate(
             sb.AppendLine($"    {{");
             sb.AppendLine(
                 $"        ref var self = ref handle.UnsafeAs<global::{GenBase.RawFullName}>().GetMutRef();");
+            if (ResourceProviders.Count > 0) sb.AppendLine($"        var ai = new {AttributeInstanceName}();");
             if (CtorInjectionTypes.Count > 0 || InjectionTypes.Count > 0)
             {
                 if (has_drp) sb.AppendLine($"        var drp = ctx.DefaultResourceProvider;");
@@ -223,7 +225,7 @@ public class SystemTemplate(
                 var rp = kv.Value.rp < 0 ? "drp" : $"rp{kv.Value.rp}";
                 var rpi = kv.Value.rp < 0
                     ? "default"
-                    : $"{AttributeInstanceName}._{ResourceProviders[kv.Key.rp!.Value]}.GetData()";
+                    : $"ai._{ResourceProviders[kv.Key.rp!.Value]}.GetData()";
                 sb.AppendLine($"        var c{kv.Value.t} = {rp}.GetRef<{kv.Key.t}>({rpi}, {req});");
             }
             var box = IsStruct ? "(object)" : "";
@@ -262,7 +264,7 @@ public class SystemTemplate(
                 var rp = kv.Value.rp < 0 ? "drp" : $"rp{kv.Value.rp}";
                 var rpi = kv.Value.rp < 0
                     ? "default"
-                    : $"{AttributeInstanceName}._{ResourceProviders[kv.Key.rp!.Value]}.GetData()";
+                    : $"ai._{ResourceProviders[kv.Key.rp!.Value]}.GetData()";
                 var get = CtorInjectionTypes.TryGetValue(kv.Key, out var ci)
                     ? $"c{ci.t}"
                     : $"{rp}.GetRef<{kv.Key.t}>({rpi}, {req})";
@@ -366,6 +368,8 @@ public class SystemTemplate(
         if (InjectionTypes.Count > 0)
         {
             sb.AppendLine();
+            sb.AppendLine(
+                "    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Auto)]");
             sb.AppendLine($"    private struct {InjectionDataName}");
             sb.AppendLine($"    {{");
             foreach (var kv in InjectionTypes)
@@ -386,11 +390,11 @@ public class SystemTemplate(
         if (ResourceProviders.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine($"file static class {AttributeInstanceName}");
+            sb.AppendLine($"file struct {AttributeInstanceName}()");
             sb.AppendLine($"{{");
             foreach (var kv in ResourceProviders)
             {
-                sb.AppendLine($"    public static readonly {kv.Key.AttrType} _{kv.Value} = {kv.Key.AttrCtor};");
+                sb.AppendLine($"    public {kv.Key.AttrType} _{kv.Value} = {kv.Key.AttrCtor};");
             }
             sb.AppendLine($"}}");
         }
