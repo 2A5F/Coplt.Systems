@@ -31,8 +31,8 @@ public class Box<T> : DynBox
     }
     public override R Get<R>()
     {
-        if (typeof(T) == typeof(R)) return Unsafe.As<T, R>(ref Value!);
-        else if (typeof(T).IsAssignableTo(typeof(R))) return (R)(object)Value!;
+        if (typeof(T) == typeof(R) || typeof(T).IsAssignableTo(typeof(R))) return Unsafe.As<T, R>(ref Value!);
+        else if (typeof(T).IsAssignableFrom(typeof(R))) return (R)(object)Value!;
         throw new InvalidCastException($"Cannot cast {typeof(T)} to {typeof(R)}");
     }
     public override ref R TryGetMutRef<R>()
@@ -47,12 +47,12 @@ public class Box<T> : DynBox
     }
     public override bool TryGet<R>(out R value)
     {
-        if (typeof(T) == typeof(R))
+        if (typeof(T) == typeof(R) || typeof(T).IsAssignableTo(typeof(R)))
         {
             value = Unsafe.As<T, R>(ref Value!);
             return true;
         }
-        else if (typeof(T).IsAssignableTo(typeof(R)))
+        else if (typeof(T).IsAssignableFrom(typeof(R)))
         {
             value = (R)(object)Value!;
             return true;
