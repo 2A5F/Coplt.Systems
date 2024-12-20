@@ -405,18 +405,7 @@ public class Systems : IDisposable
         if (new_systems.Value.Count == 0) return;
         var changed_groups = new Dictionary<Type, Node>();
         var ctx = new RecCtx(++m_graph_traversal_id);
-
-        #region Check default group
-
-        {
-            var default_group = GetOrAddGroup(m_default_group_type);
-            if (!(default_group.Meta.Group == null || default_group.Meta.Group == typeof(RootGroup)))
-                Logger?.Log(LogLevel.Error, default_group.Type,
-                    static type => $"A default group cannot have a parent group; group: {type}");
-        }
-
-        #endregion
-
+        
         #region Ensure groups
 
         {
@@ -425,6 +414,18 @@ public class Systems : IDisposable
                 if (!node.IsGroup) continue;
                 DirectAddSystem(type, node);
             }
+
+            #region Check default group
+
+            {
+                var default_group = GetOrAddGroup(m_default_group_type);
+                if (!(default_group.Meta.Group == null || default_group.Meta.Group == typeof(RootGroup)))
+                    Logger?.Log(LogLevel.Error, default_group.Type,
+                        static type => $"A default group cannot have a parent group; group: {type}");
+            }
+
+            #endregion
+
             foreach (var (_, node) in new_systems.Value)
             {
                 EnsureGroups(ctx, node, changed_groups);
