@@ -81,4 +81,45 @@ public partial class Tests
         Console.WriteLine(inc);
         Assert.That(inc, Is.EqualTo(39));
     }
+
+    public class NullResourceProvider : ResourceProvider<NullAttribute>
+    {
+        public override ResRef<T> GetRef<T>(NullAttribute data, ResReq req = default)
+        {
+            Console.WriteLine(data.Msg);
+            return default;
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
+    public sealed class NullAttribute(string Msg = "") : ResourceProviderAttribute<NullResourceProvider, NullAttribute>
+    {
+        public string Msg { get; } = Msg;
+
+        public override NullAttribute GetData() => this;
+    }
+
+    [System]
+    public partial class NullResourceProviderSystem([Null] object? a) : ISystem
+    {
+        [Null("Some")]
+        public partial object? Some { get; set; }
+        public partial object? Foo { get; set; }
+
+        public void Update([Null] object? b)
+        {
+            Console.WriteLine($"{a} {b} {Some} {Foo}");
+        }
+    }
+
+    [Test]
+    public void Test3()
+    {
+        var sys = new Systems();
+        sys.UnhandledException += e => e.Throw();
+        sys.Logger = Systems.ConsoleLogger.Instance;
+        sys.SetResourceProvider(new NullResourceProvider());
+        sys.Add<NullResourceProviderSystem>();
+        sys.Update();
+    }
 }

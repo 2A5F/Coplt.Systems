@@ -6,5 +6,8 @@ namespace Coplt.Systems;
 
 public readonly struct InjectContext(Systems systems)
 {
-    public ResourceProvider DefaultResourceProvider => systems.DefaultResourceProvider;
+    public ResourceProvider<Unit> DefaultResourceProvider => systems.DefaultResourceProvider;
+
+    public T? TryGetResourceProvider<T>() where T : ResourceProvider => systems.TryGetResourceProvider<T>();
+    public T GetResourceProvider<T>() where T : ResourceProvider => systems.GetResourceProvider<T>();
 }

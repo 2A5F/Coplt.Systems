@@ -8,6 +8,7 @@ using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Coplt.Systems.Utilities;
 
 namespace Coplt.Systems;
 
@@ -140,7 +141,7 @@ public class Systems : IDisposable
                                 var slot = m_system_instance = Systems.m_system_instances.GetOrAdd(type);
                                 Systems.GetOrAddSystemCreator(type)
                                     .Create(new(Systems), new(slot));
-                                ((ISystemBase)slot.GetObject()!).Setup();
+                                if (Meta.Setup) ((ISystemBase)slot.GetObject()!).Setup();
                             }
                             catch (Exception e)
                             {
@@ -166,7 +167,7 @@ public class Systems : IDisposable
             try
             {
                 var instance = (ISystemBase)m_system_instance.GetObject()!;
-                instance.Update();
+                if (Meta.Update) instance.Update();
 
                 if (IsGroup)
                 {
@@ -216,19 +217,17 @@ public class Systems : IDisposable
 
     #region Fields
 
-    internal ResourceProvider m_default_resource_provider = new DefaultResourceProvider();
+    internal ResourceProvider<Unit> m_default_resource_provider = new DefaultResourceProvider();
     internal readonly ConcurrentDictionary<Type, ResourceProvider> m_resource_providers = new();
     internal readonly ResourceContainer m_system_instances = new();
     internal readonly ConcurrentDictionary<Type, ASystemCreator> m_system_creators = new();
-    // read and clear only when m_exec_locker write
-    internal readonly ConcurrentDictionary<Type, Node> m_new_systems = new();
-    // read only when m_exec_locker read
+    // read and clear only when enter write
+    internal RwLock<ConcurrentDictionary<Type, Node>> m_new_systems = new(new());
+    // read only when m_new_systems enter read
     internal readonly Dictionary<Type, Node> m_system_nodes = new();
-    // read only when m_exec_locker read
-    internal readonly Dictionary<Type, Node> m_system_group_nodes = new();
     internal readonly Node m_root_group;
     internal Type m_default_group_type = typeof(RootGroup);
-    internal readonly ReaderWriterLockSlim m_exec_locker = new();
+    internal readonly Lock m_exec_locker = new();
     // do not allow parallel traversal of the graph
     internal ulong m_graph_traversal_id = 0;
     internal bool m_first_update = true;
@@ -240,7 +239,6 @@ public class Systems : IDisposable
     public Systems()
     {
         m_root_group = new(this, typeof(RootGroup));
-        m_system_group_nodes.Add(typeof(RootGroup), m_root_group);
         m_system_nodes.Add(typeof(RootGroup), m_root_group);
         AddSystemCreator<RootGroup>();
     }
@@ -294,7 +292,7 @@ public class Systems : IDisposable
 
     #region Resource
 
-    public ResourceProvider DefaultResourceProvider
+    public ResourceProvider<Unit> DefaultResourceProvider
     {
         get => m_default_resource_provider;
         set => m_default_resource_provider = value;
@@ -307,11 +305,11 @@ public class Systems : IDisposable
     public T GetResourceProvider<T>() where T : ResourceProvider =>
         TryGetResourceProvider<T>() ?? throw new NotSupportedException($"Resource provider [{typeof(T)}] is not set");
 
-    public void SetResource<T>(T resource) => m_default_resource_provider.GetRef<T>().Set(resource);
+    public void SetResource<T>(T resource) => m_default_resource_provider.GetRef<T>(default).Set(resource);
 
     public T GetResource<T>() => GetResourceRef<T>().Get();
 
-    public ResRef<T> GetResourceRef<T>() => m_default_resource_provider.GetRef<T>();
+    public ResRef<T> GetResourceRef<T>() => m_default_resource_provider.GetRef<T>(default);
 
     #endregion
 
@@ -319,70 +317,40 @@ public class Systems : IDisposable
 
     public void SetDefaultSystemGroup<T>(bool no_warn = false) where T : ISystemGroup
     {
-        m_exec_locker.EnterReadLock();
-        try
-        {
-            if (!m_first_update && !no_warn)
-                Logger?.Log(LogLevel.Warn,
-                    "It is not recommended to dynamically modify the default group. Modifying the default group will not modify the loaded system.");
-            m_default_group_type = typeof(T);
-            AddSystemCreator<T>();
-        }
-        finally
-        {
-            m_exec_locker.ExitReadLock();
-        }
+        if (!m_first_update && !no_warn)
+            Logger?.Log(LogLevel.Warn,
+                "It is not recommended to dynamically modify the default group. Modifying the default group will not modify the loaded system.");
+        m_default_group_type = typeof(T);
+        AddSystemCreator<T>();
     }
 
     public void SetDefaultSystemGroup(Type type, bool no_warn = false)
     {
         if (!type.IsAssignableTo(typeof(ISystemGroup)))
             throw new ArgumentException("Type must be an ISystemGroup", nameof(type));
-        m_exec_locker.EnterReadLock();
-        try
-        {
-            if (!m_first_update && !no_warn)
-                Logger?.Log(LogLevel.Warn,
-                    "It is not recommended to dynamically modify the default group. Modifying the default group will not modify the loaded system.");
-            m_default_group_type = type;
-            GetOrAddSystemCreator(type);
-        }
-        finally
-        {
-            m_exec_locker.ExitReadLock();
-        }
+        if (!m_first_update && !no_warn)
+            Logger?.Log(LogLevel.Warn,
+                "It is not recommended to dynamically modify the default group. Modifying the default group will not modify the loaded system.");
+        m_default_group_type = type;
+        GetOrAddSystemCreator(type);
     }
 
     public void Add<T>() where T : ISystemBase
     {
-        m_exec_locker.EnterReadLock();
-        try
-        {
-            if (m_system_nodes.ContainsKey(typeof(T))) return;
-            m_new_systems.TryAdd(typeof(T), new Node(this, typeof(T)));
-            AddSystemCreator<T>();
-        }
-        finally
-        {
-            m_exec_locker.ExitReadLock();
-        }
+        if (m_system_nodes.ContainsKey(typeof(T))) return;
+        using var new_systems = m_new_systems.EnterRead();
+        new_systems.Value.TryAdd(typeof(T), new Node(this, typeof(T)));
+        AddSystemCreator<T>();
     }
 
     public void Add(Type type)
     {
         if (!type.IsAssignableTo(typeof(ISystemBase)))
             throw new ArgumentException("Type must be an ISystemBase", nameof(type));
-        m_exec_locker.EnterReadLock();
-        try
-        {
-            if (m_system_nodes.ContainsKey(type)) return;
-            m_new_systems.TryAdd(type, new Node(this, type));
-            GetOrAddSystemCreator(type);
-        }
-        finally
-        {
-            m_exec_locker.ExitReadLock();
-        }
+        using var new_systems = m_new_systems.EnterRead();
+        if (m_system_nodes.ContainsKey(type)) return;
+        new_systems.Value.TryAdd(type, new Node(this, type));
+        GetOrAddSystemCreator(type);
     }
 
     #endregion
@@ -432,7 +400,8 @@ public class Systems : IDisposable
 
     private void LoadNewSystems()
     {
-        if (m_new_systems.Count == 0) return;
+        using var new_systems = m_new_systems.EnterWrite();
+        if (new_systems.Value.Count == 0) return;
         var changed_groups = new Dictionary<Type, Node>();
         var ctx = new RecCtx(++m_graph_traversal_id);
 
@@ -450,14 +419,14 @@ public class Systems : IDisposable
         #region Ensure groups
 
         {
-            foreach (var (type, node) in m_new_systems)
+            foreach (var (type, node) in new_systems.Value)
             {
                 if (!node.IsGroup) continue;
                 DirectAddSystem(type, node);
                 EnsureGroups(ctx, node, changed_groups);
                 ctx.Clear(++m_graph_traversal_id);
             }
-            foreach (var (_, node) in m_new_systems)
+            foreach (var (_, node) in new_systems.Value)
             {
                 if (node.IsGroup) continue;
                 EnsureGroups(ctx, node, changed_groups);
@@ -469,7 +438,7 @@ public class Systems : IDisposable
 
         #region Add non group systems
 
-        foreach (var (type, node) in m_new_systems)
+        foreach (var (type, node) in new_systems.Value)
         {
             if (node.IsGroup) continue;
             m_system_nodes.Add(type, node);
@@ -486,7 +455,7 @@ public class Systems : IDisposable
 
         #endregion
 
-        m_new_systems.Clear();
+        new_systems.Value.Clear();
     }
 
     private void SortSystemsInGroup(Node group)
@@ -595,11 +564,7 @@ public class Systems : IDisposable
         node.SortInc++;
     }
 
-    private void DirectAddSystem(Type type, Node node)
-    {
-        m_system_nodes.Add(type, node);
-        if (node.IsGroup) m_system_group_nodes.Add(type, node);
-    }
+    private void DirectAddSystem(Type type, Node node) => m_system_nodes.Add(type, node);
 
     private void EnsureGroups(in RecCtx ctx, Node node, Dictionary<Type, Node> changed_groups)
     {
@@ -624,11 +589,10 @@ public class Systems : IDisposable
 
     private Node GetOrAddGroup(Type type, out bool exists)
     {
-        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(m_system_group_nodes, type, out exists)!;
+        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(m_system_nodes, type, out exists)!;
         if (exists) return slot;
         Logger?.Log(LogLevel.Debug, type, static type => $"Implicitly added group {type}");
         var node = new Node(this, type);
-        m_system_nodes.Add(type, node);
         slot = node;
         return node;
     }
@@ -656,8 +620,7 @@ public class Systems : IDisposable
 
     public void Update()
     {
-        m_exec_locker.EnterWriteLock();
-        try
+        lock (m_exec_locker)
         {
             if (m_first_update) m_first_update = false;
             LoadNewSystems();
@@ -670,10 +633,6 @@ public class Systems : IDisposable
                 EmitUnhandledException(ExceptionDispatchInfo.Capture(e));
             }
         }
-        finally
-        {
-            m_exec_locker.ExitWriteLock();
-        }
     }
 
     #endregion
@@ -682,8 +641,7 @@ public class Systems : IDisposable
 
     public void Dispose()
     {
-        m_exec_locker.EnterWriteLock();
-        try
+        lock (m_exec_locker)
         {
             try
             {
@@ -693,10 +651,6 @@ public class Systems : IDisposable
             {
                 EmitUnhandledException(ExceptionDispatchInfo.Capture(e));
             }
-        }
-        finally
-        {
-            m_exec_locker.ExitWriteLock();
         }
     }
 

@@ -7,6 +7,7 @@ using Coplt.Analyzers.Generators.Templates;
 using Coplt.Analyzers.Utilities;
 using Coplt.Systems.Analyzers.Generators.Templates;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
@@ -15,6 +16,123 @@ namespace Coplt.Systems.Analyzers.Generators;
 [Generator]
 public class SystemGenerator : IIncrementalGenerator
 {
+    private static readonly SymbolDisplayFormat NullableFullyQualifiedFormat = new(
+        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Included,
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+        miscellaneousOptions:
+        SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers |
+        SymbolDisplayMiscellaneousOptions.UseSpecialTypes |
+        SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+    );
+
+    private static bool IsResourceProviderAttribute(
+        INamedTypeSymbol symbol, out ITypeSymbol? target
+    )
+    {
+        for (;;)
+        {
+            if (symbol.IsGenericType)
+            {
+                var gt = symbol.ConstructUnboundGenericType();
+                var gtn = gt.ToDisplayString();
+                if (gtn == "Coplt.Systems.ResourceProviderAttribute<,>")
+                {
+                    target = symbol.TypeArguments[0];
+                    return true;
+                }
+            }
+            if (symbol.BaseType is not null)
+            {
+                symbol = symbol.BaseType;
+                continue;
+            }
+            target = null;
+            return false;
+        }
+    }
+
+    private static void BuildAttrArg(StringBuilder sb, TypedConstant arg)
+    {
+        switch (arg.Kind)
+        {
+            case TypedConstantKind.Primitive:
+            {
+                var value = arg.Value;
+                sb.Append(value switch
+                {
+                    null => $"null",
+                    true => "true",
+                    false => "false",
+                    char c => SyntaxFactory.LiteralExpression(SyntaxKind.CharacterLiteralExpression, SyntaxFactory.Literal(c)).ToFullString(),
+                    string s => SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(s)).ToFullString(),
+                    int => $"{value}",
+                    uint => $"{value}u",
+                    long => $"{value}L",
+                    ulong => $"{value}UL",
+                    float => $"{value}f",
+                    double => $"{value}d",
+                    decimal => $"{value}m",
+                    _ => $"({arg.Type!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}){value}"
+                });
+                break;
+            }
+            case TypedConstantKind.Enum:
+                sb.Append($"({arg.Type!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}){arg.Value}");
+                break;
+            case TypedConstantKind.Type:
+                sb.Append(
+                    $"typeof({((ISymbol)arg.Value!).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})");
+                break;
+            case TypedConstantKind.Array:
+            {
+                var first = true;
+                sb.Append("[");
+                foreach (var a in arg.Values)
+                {
+                    if (first) first = false;
+                    else sb.Append(", ");
+                    BuildAttrArg(sb, a);
+                }
+                sb.Append("]");
+                break;
+            }
+            default:
+                sb.Append(" ");
+                break;
+        }
+    }
+
+    private static string BuildAttrCtor(AttributeData attr)
+    {
+        var sb = new StringBuilder();
+        sb.Append("new(");
+        var first = true;
+        foreach (var arg in attr.ConstructorArguments)
+        {
+            if (first) first = false;
+            else sb.Append(", ");
+            BuildAttrArg(sb, arg);
+        }
+        if (attr.NamedArguments.Length > 0)
+        {
+            first = true;
+            sb.Append(" {");
+            foreach (var kv in attr.NamedArguments)
+            {
+                if (first) first = false;
+                else sb.Append(", ");
+                var name = kv.Key;
+                var arg = kv.Value;
+                sb.Append($"{name} = ");
+                BuildAttrArg(sb, arg);
+            }
+            sb.Append(" }");
+        }
+        sb.Append(")");
+        return sb.ToString();
+    }
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var sources = context.SyntaxProvider.ForAttributeWithMetadataName("Coplt.Systems.SystemAttribute",
@@ -78,9 +196,18 @@ public class SystemGenerator : IIncrementalGenerator
                     .Select(static s =>
                     {
                         var attr = s.GetAttributes()
-                            .FirstOrDefault(a =>
+                            .FirstOrDefault(static a =>
                                 a.AttributeClass?.ToDisplayString() == "Coplt.Systems.InjectAttribute");
-                        return (s, attr);
+                        var rp = s.GetAttributes()
+                            .Where(static a => a.AttributeClass != null)
+                            .Select(static a =>
+                                IsResourceProviderAttribute(a.AttributeClass!, out var target) ? (target, a) : default)
+                            .FirstOrDefault(static a => a.target != null);
+                        return (
+                            s, attr,
+                            rp: rp.target?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                            rpa: rp.a
+                        );
                     })
                     .Where(static a => a.attr != null || a.s is { IsPartialDefinition: true })
                     .Select(static a =>
@@ -89,11 +216,20 @@ public class SystemGenerator : IIncrementalGenerator
                         var exclude =
                             args != null && args.TryGetValue("Exclude", out var exclude_c) &&
                             exclude_c.Value is true;
-                        return (a.s, exclude);
+                        return (a.s, a.rp, a.rpa, exclude);
                     })
                     .Where(static a => !a.exclude)
                     .Select(static a => new Injection(a.s.Name,
                         a.s.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                        a.s.Type.ToDisplayString(NullableFullyQualifiedFormat),
+                        a.rp is null
+                            ? default
+                            : new(
+                                a.rp,
+                                a.rpa.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ??
+                                "void",
+                                BuildAttrCtor(a.rpa)
+                            ),
                         a.s.DeclaredAccessibility, a.s.Type.IsValueType,
                         a.s.ReturnsByRef || a.s.ReturnsByRefReadonly, a.s.ReturnsByRefReadonly,
                         a.s.GetMethod is not null,
@@ -111,7 +247,7 @@ public class SystemGenerator : IIncrementalGenerator
                     .Select(static s =>
                     {
                         var attr = s.GetAttributes()
-                            .FirstOrDefault(a =>
+                            .FirstOrDefault(static a =>
                                 a.AttributeClass?.ToDisplayString() == "Coplt.Systems.SetupAttribute");
                         return (s, attr);
                     })
@@ -132,8 +268,28 @@ public class SystemGenerator : IIncrementalGenerator
                     .OrderBy(static a => a.order)
                     .Select(static a =>
                     {
-                        var args = a.s.Parameters.Select(p =>
-                                new Arg(p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), p.RefKind))
+                        var args = a.s.Parameters.Select(static p =>
+                            {
+                                var rp = p.GetAttributes()
+                                    .Where(static a => a.AttributeClass != null)
+                                    .Select(static a =>
+                                        IsResourceProviderAttribute(a.AttributeClass!, out var target)
+                                            ? (target, a)
+                                            : default)
+                                    .FirstOrDefault(static a => a.target != null);
+                                return new Arg(
+                                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                                    p.RefKind,
+                                    rp.target is null
+                                        ? default
+                                        : new(
+                                            rp.target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                                            rp.a.AttributeClass?.ToDisplayString(SymbolDisplayFormat
+                                                .FullyQualifiedFormat) ?? "void",
+                                            BuildAttrCtor(rp.a)
+                                        )
+                                );
+                            })
                             .ToImmutableArray();
                         return new InjectedMethod(a.s.Name, args);
                     })
@@ -171,8 +327,28 @@ public class SystemGenerator : IIncrementalGenerator
                     .OrderBy(static a => a.order)
                     .Select(static a =>
                     {
-                        var args = a.s.Parameters.Select(p =>
-                                new Arg(p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), p.RefKind))
+                        var args = a.s.Parameters.Select(static p =>
+                            {
+                                var rp = p.GetAttributes()
+                                    .Where(static a => a.AttributeClass != null)
+                                    .Select(static a =>
+                                        IsResourceProviderAttribute(a.AttributeClass!, out var target)
+                                            ? (target, a)
+                                            : default)
+                                    .FirstOrDefault(static a => a.target != null);
+                                return new Arg(
+                                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                                    p.RefKind,
+                                    rp.target is null
+                                        ? default
+                                        : new(
+                                            rp.target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                                            rp.a.AttributeClass?.ToDisplayString(SymbolDisplayFormat
+                                                .FullyQualifiedFormat) ?? "void",
+                                            BuildAttrCtor(rp.a)
+                                        )
+                                );
+                            })
                             .ToImmutableArray();
                         return new InjectedMethod(a.s.Name, args);
                     })
@@ -206,7 +382,27 @@ public class SystemGenerator : IIncrementalGenerator
                 var ctor_args = ctor == null
                     ? []
                     : ctor.Parameters.Select(static a =>
-                            new Arg(a.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), a.RefKind))
+                        {
+                            var rp = a.GetAttributes()
+                                .Where(static a => a.AttributeClass != null)
+                                .Select(static a =>
+                                    IsResourceProviderAttribute(a.AttributeClass!, out var target)
+                                        ? (target, a)
+                                        : default)
+                                .FirstOrDefault(static a => a.target != null);
+                            return new Arg(
+                                a.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                                a.RefKind,
+                                rp.target is null
+                                    ? default
+                                    : new(
+                                        rp.target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                                        rp.a.AttributeClass?.ToDisplayString(SymbolDisplayFormat
+                                            .FullyQualifiedFormat) ?? "void",
+                                        BuildAttrCtor(rp.a)
+                                    )
+                            );
+                        })
                         .ToImmutableArray();
 
                 #endregion

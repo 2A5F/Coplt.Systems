@@ -33,9 +33,8 @@ public readonly partial struct Sys1<T>(ref float a, int b) // di on constructor 
 // Build systems
 var sys = new Systems();
 sys.SetResource(new Data()); // Resources will be automatically dependency injected
-sys.AddSystem<Sys1<int>>();
-sys.AddSystemGroup<SysGroup1>();
-sys.Setup();
+sys.Add<Sys1<int>>();
+sys.Add<SysGroup1>();
 
 // Call update every frame
 sys.Update();
@@ -44,36 +43,6 @@ sys.Update();
 var inc = sys.GetResource<Data>().inc;
 Console.WriteLine(inc);
 Assert.That(inc, Is.EqualTo(1));
-```
-
----
-
-Parallel systems of the same order can automatically execute in parallel
-
-```csharp
-[System(Parallel = true)]
-public readonly partial struct Sys2
-{
-    private void Update(ref Data data) => Interlocked.Increment(ref data.inc);
-}
-
-[System(Parallel = true)]
-public readonly partial struct Sys3
-{
-    private void Update(ref Data data) => Interlocked.Decrement(ref data.inc);
-}
-
-var sys = new Systems();
-sys.SetResource(new Data { inc = 6 });
-sys.AddSystem<Sys2>();
-sys.AddSystem<Sys3>();
-sys.Setup();
-
-sys.Update();
-
-var inc = sys.GetResource<Data>().inc;
-Console.WriteLine(inc);
-Assert.That(inc, Is.EqualTo(6));
 ```
 
 ---
@@ -101,15 +70,60 @@ public readonly partial struct Sys6
 
 var sys = new Systems();
 sys.SetResource(new Data { inc = 6 });
-sys.AddSystemGroup<SysGroup1>();
-sys.AddSystem<Sys4>();
-sys.AddSystem<Sys5>();
-sys.AddSystem<Sys6>();
-sys.Setup();
+sys.Add<SysGroup1>();
+sys.Add<Sys4>();
+sys.Add<Sys5>();
+sys.Add<Sys6>();
 
 sys.Update();
 
 var inc = sys.GetResource<Data>().inc;
 Console.WriteLine(inc);
 Assert.That(inc, Is.EqualTo(39));
+```
+
+---
+
+Custom resource providers
+
+```csharp
+public class NullResourceProvider : ResourceProvider<NullAttribute>
+{
+    public override ResRef<T> GetRef<T>(NullAttribute data, ResReq req = default)
+    {
+        Console.WriteLine(data.Msg);
+        return default;
+    }
+}
+
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
+public sealed class NullAttribute(string Msg = "") : ResourceProviderAttribute<NullResourceProvider, NullAttribute>
+{
+    public string Msg { get; } = Msg;
+
+    public override NullAttribute GetData() => this;
+}
+
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
+public sealed class NullAttribute(string Msg = "") : ResourceProviderAttribute<NullResourceProvider>
+{
+    public string Msg { get; } = Msg;
+}
+
+[System]
+public partial class NullResourceProviderSystem([Null] object? a) : ISystem
+{
+    [Null("Some")]
+    public partial object? Some { get; set; }
+    public partial object? Foo { get; set; }
+
+    public void Update([Null] object? b) { }
+}
+
+var sys = new Systems();
+sys.SetResourceProvider(new NullResourceProvider());
+sys.Add<NullResourceProviderSystem>();
+sys.Update();
+
+// print: Some
 ```

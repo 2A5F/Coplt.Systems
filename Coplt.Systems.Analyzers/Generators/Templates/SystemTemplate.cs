@@ -9,10 +9,13 @@ using Microsoft.CodeAnalysis;
 namespace Coplt.Systems.Analyzers.Generators.Templates;
 
 public record struct InjectedMethod(string Name, ImmutableArray<Arg> Args);
+public record struct ResourceProvider(string Type, string AttrType, string AttrCtor);
 
 public record struct Injection(
     string Name,
     string Type,
+    string TypeWithNullable,
+    ResourceProvider? ResourceProvider,
     Accessibility Accessibility,
     bool IsStruct,
     bool Ref,
@@ -23,7 +26,8 @@ public record struct Injection(
 
 public record struct Arg(
     string Type,
-    RefKind Ref
+    RefKind Ref,
+    ResourceProvider? ResourceProvider
 );
 
 public record struct SystemMeta()
@@ -49,32 +53,68 @@ public class SystemTemplate(
     ImmutableArray<Arg> CtorArgs
 ) : ATemplate(GenBase)
 {
-    private string InjectionDataName = $"__InjectionData";
-    private string InjectionFieldName = $"__injection_data";
+    private const string InjectionDataName = $"__InjectionData";
+    private const string InjectionFieldName = $"__injection_data";
+    private const string AttributeInstanceName = $"__AttributeInstance";
+
+    private readonly Dictionary<string, int> ResourceProviderTypes = new();
+    private readonly Dictionary<(string t, ResourceProvider? rp), (int t, int rp)> InjectionTypes = new();
+    private readonly Dictionary<ResourceProvider, int> ResourceProviders = new();
 
     protected override void DoGen()
     {
-        Dictionary<string, int> InjectionTypes = new();
+        var has_drp = false;
         var injection_inc = 0;
+        var resource_provider_type_inc = 0;
+        var resource_provider_inc = 0;
         foreach (var injection in Injections)
         {
-            if (InjectionTypes.ContainsKey(injection.Type)) continue;
-            else InjectionTypes.Add(injection.Type, injection_inc++);
+            var rp = -1;
+            if (injection.ResourceProvider is { } ResourceProvider)
+            {
+                if (!ResourceProviderTypes.TryGetValue(ResourceProvider.Type, out rp))
+                    ResourceProviderTypes.Add(ResourceProvider.Type,
+                        rp = resource_provider_type_inc++);
+                if (!ResourceProviders.ContainsKey(ResourceProvider))
+                    ResourceProviders.Add(ResourceProvider, resource_provider_inc++);
+            }
+            else has_drp = true;
+            if (!InjectionTypes.ContainsKey((injection.Type, injection.ResourceProvider)))
+                InjectionTypes.Add((injection.Type, injection.ResourceProvider),
+                    (injection_inc++, rp));
         }
         foreach (var setup in Setups)
         {
             foreach (var arg in setup.Args)
             {
-                if (InjectionTypes.ContainsKey(arg.Type)) continue;
-                else InjectionTypes.Add(arg.Type, injection_inc++);
+                var rp = -1;
+                if (arg.ResourceProvider is { } ResourceProvider)
+                {
+                    if (!ResourceProviderTypes.TryGetValue(ResourceProvider.Type, out rp))
+                        ResourceProviderTypes.Add(ResourceProvider.Type, rp = resource_provider_type_inc++);
+                    if (!ResourceProviders.ContainsKey(ResourceProvider))
+                        ResourceProviders.Add(ResourceProvider, resource_provider_inc++);
+                }
+                else has_drp = true;
+                if (!InjectionTypes.ContainsKey((arg.Type, arg.ResourceProvider)))
+                    InjectionTypes.Add((arg.Type, arg.ResourceProvider), (injection_inc++, rp));
             }
         }
         foreach (var update in Updates)
         {
             foreach (var arg in update.Args)
             {
-                if (InjectionTypes.ContainsKey(arg.Type)) continue;
-                else InjectionTypes.Add(arg.Type, injection_inc++);
+                var rp = -1;
+                if (arg.ResourceProvider is { } ResourceProvider)
+                {
+                    if (!ResourceProviderTypes.TryGetValue(ResourceProvider.Type, out rp))
+                        ResourceProviderTypes.Add(ResourceProvider.Type, rp = resource_provider_type_inc++);
+                    if (!ResourceProviders.ContainsKey(ResourceProvider))
+                        ResourceProviders.Add(ResourceProvider, resource_provider_inc++);
+                }
+                else has_drp = true;
+                if (!InjectionTypes.ContainsKey((arg.Type, arg.ResourceProvider)))
+                    InjectionTypes.Add((arg.Type, arg.ResourceProvider), (injection_inc++, rp));
             }
         }
 
@@ -90,6 +130,7 @@ public class SystemTemplate(
 
         #region Initialization Field
 
+        if (InjectionTypes.Count > 0)
         {
             var r = ReadOnly ? "readonly " : "";
             sb.AppendLine();
@@ -101,24 +142,27 @@ public class SystemTemplate(
         #region Props
 
         {
-            sb.AppendLine();
             foreach (var injection in Injections)
             {
-                var i = InjectionTypes[injection.Type];
+                sb.AppendLine();
+                var i = InjectionTypes[(injection.Type, injection.ResourceProvider)];
                 var ro = injection.ReadOnly ? "readonly " : "";
                 var r = injection.Ref ? $"ref " : "";
-                sb.AppendLine("    [global::System.Diagnostics.CodeAnalysis.UnscopedRefAttribute]");
+                if (IsStruct)
+                {
+                    sb.AppendLine("    [global::System.Diagnostics.CodeAnalysis.UnscopedRefAttribute]");
+                }
                 sb.AppendLine(
-                    $"    {injection.Accessibility.GetAccessStr()} partial {r}{ro}{injection.Type} {injection.Name}");
+                    $"    {injection.Accessibility.GetAccessStr()} partial {r}{ro}{injection.TypeWithNullable} {injection.Name}");
                 sb.AppendLine($"    {{");
                 if (injection.Get)
                 {
                     var get = injection.Ref ? injection.ReadOnly ? "GetImmRef" : "GetMutRef" : "Get";
-                    sb.AppendLine($"        get => {r}{InjectionFieldName}._{i}.{get}();");
+                    sb.AppendLine($"        get => {r}{InjectionFieldName}._{i.t}.{get}();");
                 }
                 if (injection.Set)
                 {
-                    sb.AppendLine($"        set => {InjectionFieldName}._{i}.Set(value);");
+                    sb.AppendLine($"        set => {InjectionFieldName}._{i.t}.Set(value);");
                 }
                 sb.AppendLine($"    }}");
             }
@@ -142,12 +186,22 @@ public class SystemTemplate(
         #region Create
 
         {
-            Dictionary<string, int> CtorInjectionTypes = new();
+            Dictionary<(string t, ResourceProvider? rp), (int t, int rp)> CtorInjectionTypes = new();
             var ctor_injection_inc = 0;
             foreach (var arg in CtorArgs)
             {
-                if (CtorInjectionTypes.ContainsKey(arg.Type)) continue;
-                else CtorInjectionTypes.Add(arg.Type, ctor_injection_inc++);
+                var rp = -1;
+                if (arg.ResourceProvider is { } ResourceProvider)
+                {
+                    if (!ResourceProviderTypes.TryGetValue(ResourceProvider.Type, out rp))
+                        ResourceProviderTypes.Add(ResourceProvider.Type, rp = resource_provider_type_inc++);
+                    if (!ResourceProviders.ContainsKey(ResourceProvider))
+                        ResourceProviders.Add(ResourceProvider, resource_provider_inc++);
+                }
+                else has_drp = true;
+                if (!CtorInjectionTypes.ContainsKey((arg.Type, arg.ResourceProvider)))
+                    CtorInjectionTypes.Add((arg.Type, arg.ResourceProvider),
+                        (ctor_injection_inc++, rp));
             }
             sb.AppendLine();
             sb.AppendLine(
@@ -155,16 +209,29 @@ public class SystemTemplate(
             sb.AppendLine($"    {{");
             sb.AppendLine(
                 $"        ref var self = ref handle.UnsafeAs<global::{GenBase.RawFullName}>().GetMutRef();");
+            if (CtorInjectionTypes.Count > 0 || InjectionTypes.Count > 0)
+            {
+                if (has_drp) sb.AppendLine($"        var drp = ctx.DefaultResourceProvider;");
+                foreach (var kv in ResourceProviderTypes)
+                {
+                    sb.AppendLine($"        var rp{kv.Value} = ctx.GetResourceProvider<{kv.Key}>();");
+                }
+            }
             foreach (var kv in CtorInjectionTypes)
             {
-                sb.AppendLine($"        var c{kv.Value} = ctx.DefaultResourceProvider.GetRef<{kv.Key}>();");
+                var req = $"new() {{ SrcSystem = handle }}";
+                var rp = kv.Value.rp < 0 ? "drp" : $"rp{kv.Value.rp}";
+                var rpi = kv.Value.rp < 0
+                    ? "default"
+                    : $"{AttributeInstanceName}._{ResourceProviders[kv.Key.rp!.Value]}.GetData()";
+                sb.AppendLine($"        var c{kv.Value.t} = {rp}.GetRef<{kv.Key.t}>({rpi}, {req});");
             }
             var box = IsStruct ? "(object)" : "";
             sb.Append($"        self = new global::{GenBase.RawFullName}(");
             var first = true;
             foreach (var arg in CtorArgs)
             {
-                var i = CtorInjectionTypes[arg.Type];
+                var i = CtorInjectionTypes[(arg.Type, arg.ResourceProvider)];
                 var r = arg.Ref switch
                 {
                     RefKind.Ref => "ref ",
@@ -181,17 +248,25 @@ public class SystemTemplate(
                     RefKind.In => "GetImmRef",
                     _ => "Get"
                 };
-                sb.Append($"{r}c{i}.{get}()");
+                sb.Append($"{r}c{i.t}.{get}()");
             }
             sb.AppendLine($");");
-            sb.AppendLine(
-                $"        ref var data = ref global::System.Runtime.CompilerServices.Unsafe.AsRef(in self.{InjectionFieldName});");
+            if (InjectionTypes.Count > 0)
+            {
+                sb.AppendLine(
+                    $"        ref var data = ref global::System.Runtime.CompilerServices.Unsafe.AsRef(in self.{InjectionFieldName});");
+            }
             foreach (var kv in InjectionTypes)
             {
+                var req = $"new() {{ SrcSystem = handle }}";
+                var rp = kv.Value.rp < 0 ? "drp" : $"rp{kv.Value.rp}";
+                var rpi = kv.Value.rp < 0
+                    ? "default"
+                    : $"{AttributeInstanceName}._{ResourceProviders[kv.Key.rp!.Value]}.GetData()";
                 var get = CtorInjectionTypes.TryGetValue(kv.Key, out var ci)
-                    ? $"c{ci}"
-                    : $"ctx.DefaultResourceProvider.GetRef<{kv.Key}>()";
-                sb.AppendLine($"        data._{kv.Value} = {get};");
+                    ? $"c{ci.t}"
+                    : $"{rp}.GetRef<{kv.Key.t}>({rpi}, {req})";
+                sb.AppendLine($"        data._{kv.Value.t} = {get};");
             }
             sb.AppendLine($"    }}");
         }
@@ -210,7 +285,7 @@ public class SystemTemplate(
                 var first = true;
                 foreach (var arg in setup.Args)
                 {
-                    var i = InjectionTypes[arg.Type];
+                    var i = InjectionTypes[(arg.Type, arg.ResourceProvider)];
                     var r = arg.Ref switch
                     {
                         RefKind.Ref => "ref ",
@@ -227,7 +302,7 @@ public class SystemTemplate(
                         RefKind.In => "GetImmRef",
                         _ => "Get"
                     };
-                    sb.Append($"{r}{InjectionFieldName}._{i}.{get}()");
+                    sb.Append($"{r}{InjectionFieldName}._{i.t}.{get}()");
                 }
                 sb.AppendLine($");");
             }
@@ -248,7 +323,7 @@ public class SystemTemplate(
                 var first = true;
                 foreach (var arg in update.Args)
                 {
-                    var i = InjectionTypes[arg.Type];
+                    var i = InjectionTypes[(arg.Type, arg.ResourceProvider)];
                     var r = arg.Ref switch
                     {
                         RefKind.Ref => "ref ",
@@ -265,7 +340,7 @@ public class SystemTemplate(
                         RefKind.In => "GetImmRef",
                         _ => "Get"
                     };
-                    sb.Append($"{r}{InjectionFieldName}._{i}.{get}()");
+                    sb.Append($"{r}{InjectionFieldName}._{i.t}.{get}()");
                 }
                 sb.AppendLine($");");
             }
@@ -288,13 +363,14 @@ public class SystemTemplate(
 
         #region InjectionData
 
+        if (InjectionTypes.Count > 0)
         {
             sb.AppendLine();
             sb.AppendLine($"    private struct {InjectionDataName}");
             sb.AppendLine($"    {{");
             foreach (var kv in InjectionTypes)
             {
-                sb.AppendLine($"        public global::Coplt.Systems.ResRef<{kv.Key}> _{kv.Value};");
+                sb.AppendLine($"        public global::Coplt.Systems.ResRef<{kv.Key.t}> _{kv.Value.t};");
             }
             sb.AppendLine($"    }}");
         }
@@ -303,5 +379,20 @@ public class SystemTemplate(
 
         sb.AppendLine();
         sb.AppendLine("}");
+    }
+
+    protected override void DoGenFileScope()
+    {
+        if (ResourceProviders.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"file static class {AttributeInstanceName}");
+            sb.AppendLine($"{{");
+            foreach (var kv in ResourceProviders)
+            {
+                sb.AppendLine($"    public static readonly {kv.Key.AttrType} _{kv.Value} = {kv.Key.AttrCtor};");
+            }
+            sb.AppendLine($"}}");
+        }
     }
 }

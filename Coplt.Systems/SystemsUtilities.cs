@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using InlineIL;
 using static InlineIL.IL.Emit;
 
@@ -20,7 +22,7 @@ public static class SystemsUtils
     }
 
     public static ref byte UnsafeUnbox(object obj) => ref Unsafe.As<UnboxHelper>(obj)._first;
-    
+
     public static ref T UnsafeUnboxAs<T>(object obj) => ref Unsafe.As<byte, T>(ref UnsafeUnbox(obj));
 
     public static object CreateBoxedDefaultValueType(Type type)
@@ -31,5 +33,43 @@ public static class SystemsUtils
         var obj = RuntimeHelpers.GetUninitializedObject(type);
 #pragma warning restore IL2067
         return obj;
+    }
+}
+
+internal record struct RwLock<T>(T Value)
+{
+    public T Value = Value;
+    public ReaderWriterLockSlim Lock = new();
+
+    [UnscopedRef]
+    public ReadGuard EnterRead()
+    {
+        Lock.EnterReadLock();
+        return new(ref Value, Lock);
+    }
+
+    [UnscopedRef]
+    public WriteGuard EnterWrite()
+    {
+        Lock.EnterWriteLock();
+        return new(ref Value, Lock);
+    }
+
+    internal ref struct ReadGuard(ref T Value, ReaderWriterLockSlim Lock)
+    {
+        public ref T Value = ref Value;
+        public void Dispose()
+        {
+            Lock.ExitReadLock();
+        }
+    }
+
+    internal ref struct WriteGuard(ref T Value, ReaderWriterLockSlim Lock)
+    {
+        public ref T Value = ref Value;
+        public void Dispose()
+        {
+            Lock.ExitWriteLock();
+        }
     }
 }
