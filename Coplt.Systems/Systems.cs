@@ -424,12 +424,9 @@ public class Systems : IDisposable
             {
                 if (!node.IsGroup) continue;
                 DirectAddSystem(type, node);
-                EnsureGroups(ctx, node, changed_groups);
-                ctx.Clear(++m_graph_traversal_id);
             }
             foreach (var (_, node) in new_systems.Value)
             {
-                if (node.IsGroup) continue;
                 EnsureGroups(ctx, node, changed_groups);
                 ctx.Clear(++m_graph_traversal_id);
             }
