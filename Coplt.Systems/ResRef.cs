@@ -176,7 +176,7 @@ public readonly struct ResRef<T>
 
     #region private
 
-    private ref ResRef<T> UnsafeGetIndirectRef() => ref SystemsUtils.UnsafeUnbox<ResRef<T>>(m_obj!);
+    private ref ResRef<T> UnsafeGetIndirectRef() => ref SystemsUtils.UncheckedUnbox<ResRef<T>>(m_obj!);
 
     [UnscopedRef]
     private ref T UnsafeGetRef()
@@ -195,7 +195,7 @@ public readonly struct ResRef<T>
             {
                 var obj = slot;
                 if (obj is null) return ref Unsafe.NullRef<T>();
-                return ref SystemsUtils.UnsafeUnbox<T>(obj);
+                return ref SystemsUtils.UncheckedUnbox<T>(obj);
             }
             return ref Unsafe.As<object?, T>(ref slot);
         }
@@ -218,7 +218,7 @@ public readonly struct ResRef<T>
         }
         else
         {
-            if (typeof(T).IsValueType) return ref SystemsUtils.UnsafeUnbox<T>(m_obj!);
+            if (typeof(T).IsValueType) return ref SystemsUtils.UncheckedUnbox<T>(m_obj!);
             return ref Unsafe.As<object, T>(ref Unsafe.AsRef(in m_obj!));
         }
     }
@@ -254,7 +254,7 @@ public readonly struct ResRef<T>
             {
                 var obj = slot;
                 if (obj is null) return default!;
-                return SystemsUtils.UnsafeUnbox<T>(obj);
+                return SystemsUtils.UncheckedUnbox<T>(obj);
             }
             return Unsafe.As<object?, T>(ref slot);
         }
@@ -319,7 +319,7 @@ public readonly struct UnTypedResRef
     public ResRef<T> UnsafeAs<T>() => new(m_obj, m_type, m_index);
 
     // UnTypedResRef and ResRef<T> memory layout must be same
-    private ref UnTypedResRef UnsafeGetIndirectRef() => ref SystemsUtils.UnsafeUnboxAs<UnTypedResRef>(m_obj!);
+    private ref UnTypedResRef UnsafeGetIndirectRef() => ref SystemsUtils.UncheckedUnbox<UnTypedResRef>(m_obj!);
 
     public object? GetObject()
     {

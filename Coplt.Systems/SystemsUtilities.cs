@@ -21,9 +21,9 @@ public static class SystemsUtils
         public byte _first = 0;
     }
 
-    public static ref byte UnsafeUnbox(object obj) => ref Unsafe.As<UnboxHelper>(obj)._first;
+    public static ref byte UncheckedUnbox(object obj) => ref Unsafe.As<UnboxHelper>(obj)._first;
 
-    public static ref T UnsafeUnboxAs<T>(object obj) => ref Unsafe.As<byte, T>(ref UnsafeUnbox(obj));
+    public static ref T UncheckedUnbox<T>(object obj) => ref Unsafe.As<byte, T>(ref UncheckedUnbox(obj));
 
     public static object CreateBoxedDefaultValueType(Type type)
     {
